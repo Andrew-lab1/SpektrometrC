@@ -109,7 +109,7 @@ static QString normalizedSerialPortName(const QString& portName)
         name = name.left(separator).trimmed();
     }
     return name;
-}
+} 
 
 static QString formatPortStatus(const QString& axis, const QString& portName, bool connected)
 {
