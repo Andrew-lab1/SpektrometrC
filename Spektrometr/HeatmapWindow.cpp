@@ -543,8 +543,9 @@ HeatmapWindow* HeatmapWindow::createLazy(QWidget* parent)
 void HeatmapWindow::initUiForLazy()
 {
     setWindowTitle(QStringLiteral("Heatmap"));
-    if (m_heatmapLabel) m_heatmapLabel->setText(tr("Loading..."));
-    if (m_spectrumLabel) m_spectrumLabel->setText(tr("Loading..."));
+    if (m_heatmapLabel) m_heatmapLabel->clear();
+    if (m_colorbarLabel) m_colorbarLabel->clear();
+    if (m_spectrumLabel) m_spectrumLabel->clear();
     if (m_slider) {
         const QSignalBlocker b(m_slider);
         m_slider->setMinimum(0);

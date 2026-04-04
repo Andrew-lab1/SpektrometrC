@@ -95,8 +95,8 @@ private:
         QVector<double> exposures;
     };
     // Stage tracking relative to sequence start (center) in micrometers.
-    int m_stageOffsetXUm = 0;
-    int m_stageOffsetYUm = 0;
+    std::atomic_int m_stageOffsetXUm{ 0 };
+    std::atomic_int m_stageOffsetYUm{ 0 };
     bool m_stageHasReference = false;
     void returnStageToSequenceStart();
     void runSequenceLoop(SequenceRunSnapshot snapshot);

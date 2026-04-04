@@ -132,8 +132,8 @@ static QString formatPixelinkStatus(bool connectInProgress, bool connected, bool
 
 bool Spektrometr::openSerialPort(QSerialPort*& port, QString& openName, const QString& wantName, const char* which)
 {
-#ifdef Q_OS_WIN
     const QString normalizedWantName = normalizedSerialPortName(wantName);
+#ifdef Q_OS_WIN
     if (port && port->isOpen() && normalizedSerialPortName(openName) == normalizedWantName) return true;
 
     if (port) {
@@ -501,7 +501,7 @@ bool Spektrometr::move(int dxUm, int dyUm, QString* errOut)
             if (errOut) *errOut = err;
             return false;
         }
-        m_stageOffsetXUm += dxUm;
+        m_stageOffsetXUm.fetch_add(dxUm);
     }
     if (dyP != 0) {
         const QByteArray cmd = (dyP > 0 ? QByteArray("M:1+P") : QByteArray("M:1-P")) + QByteArray::number(qAbs(dyP)) + "\r\nG:\r\n";
@@ -515,7 +515,7 @@ bool Spektrometr::move(int dxUm, int dyUm, QString* errOut)
             if (errOut) *errOut = err;
             return false;
         }
-        m_stageOffsetYUm += dyUm;
+        m_stageOffsetYUm.fetch_add(dyUm);
     }
     return true;
 #else
@@ -747,7 +747,6 @@ void Spektrometr::init()
     }
 
     connect(ui.btnRefreshResults, &QPushButton::clicked, this, &Spektrometr::refreshResults);
-    connect(ui.btnOpenMeasurement, &QPushButton::clicked, this, &Spektrometr::openSelectedMeasurement);
     if (ui.btnExportAll) {
         connect(ui.btnExportAll, &QPushButton::clicked, this, &Spektrometr::exportAllMeasurements);
     }
@@ -756,6 +755,14 @@ void Spektrometr::init()
     }
     if (ui.btnDeleteSelected) {
         connect(ui.btnDeleteSelected, &QPushButton::clicked, this, &Spektrometr::deleteSelectedMeasurement);
+    }
+    if (ui.btnOpenMeasurement) {
+        connect(ui.btnOpenMeasurement, &QPushButton::clicked, this, &Spektrometr::openSelectedMeasurement);
+    }
+    if (ui.listMeasurements) {
+        connect(ui.listMeasurements, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem*) {
+            openSelectedMeasurement();
+        });
     }
 
     if (ui.btnSaveSettings) {
@@ -946,6 +953,10 @@ void Spektrometr::init()
     startPixelink();
     setSequenceButtonsEnabled(m_sequenceRunning.load());
     updateConnectionStatusUi();
+
+    QTimer::singleShot(0, this, [this]() {
+        tickSpectrum();
+    });
 }
 
 void Spektrometr::loop()
@@ -976,10 +987,6 @@ void Spektrometr::tickSpectrum()
 {
     const bool spectrumTabActive = !ui.tabWidget || !ui.tabSpectrum || ui.tabWidget->currentWidget() == ui.tabSpectrum;
     if (!m_sequenceRunning.load() && !spectrumTabActive) {
-        return;
-    }
-
-    if (!pixelinkOpen() && !m_sequenceRunning.load()) {
         return;
     }
 
@@ -1615,8 +1622,8 @@ void Spektrometr::runSequenceLoop(SequenceRunSnapshot snapshot)
         }
 
         const SequencePlanPoint pt = m_movementMap.at(m_sequencePointIndex);
-        const int dxUm = pt.xUm - m_stageOffsetXUm;
-        const int dyUm = pt.yUm - m_stageOffsetYUm;
+        const int dxUm = pt.xUm - m_stageOffsetXUm.load();
+        const int dyUm = pt.yUm - m_stageOffsetYUm.load();
         QString moveErr;
         if ((dxUm != 0 || dyUm != 0) && !move(dxUm, dyUm, &moveErr)) {
             pauseSequence(moveErr);
@@ -1643,6 +1650,12 @@ void Spektrometr::runSequenceLoop(SequenceRunSnapshot snapshot)
             }
 
             const double expMs = exposures[expIdx];
+            appendLog(QStringLiteral("Point %1/%2: waiting for camera frame at %3 ms (exposure %4/%5)")
+                .arg(m_sequencePointIndex + 1)
+                .arg(m_movementMap.size())
+                .arg(QString::number(expMs, 'f', 1))
+                .arg(expIdx + 1)
+                .arg(exposures.size()));
 
             QString expErr;
 #if HAVE_PIXELINK_SDK
@@ -2028,7 +2041,7 @@ void Spektrometr::ensureConnectionStatusLabel()
     m_connectionStatusLabel->setTextFormat(Qt::RichText);
     m_connectionStatusLabel->setTextInteractionFlags(Qt::NoTextInteraction);
     m_connectionStatusLabel->setContentsMargins(6, 2, 6, 2);
-    m_connectionStatusLabel->setMinimumWidth(560);
+    m_connectionStatusLabel->setMinimumWidth(640);
     m_connectionStatusLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     bar->addPermanentWidget(m_connectionStatusLabel, 1);
 }
@@ -2040,14 +2053,13 @@ void Spektrometr::updateConnectionStatusUi()
         return;
     }
 
-    const bool portsConnected = portsOpen();
     const bool pixelinkConnected = pixelinkOpen();
     const QString selectedX = normalizedSerialPortName(ui.comboPortX ? ui.comboPortX->currentText() : m_options.port_x);
     const QString selectedY = normalizedSerialPortName(ui.comboPortY ? ui.comboPortY->currentText() : m_options.port_y);
     const QString portX = m_openPortX.isEmpty() ? selectedX : m_openPortX;
     const QString portY = m_openPortY.isEmpty() ? selectedY : m_openPortY;
-    const bool portXConnected = m_portX && m_portX->isOpen();
-    const bool portYConnected = m_portY && m_portY->isOpen();
+    const bool portXConnected = (m_portX && m_portX->isOpen());
+    const bool portYConnected = (m_portY && m_portY->isOpen());
     const bool retryPending = !pixelinkConnected && !m_pixelinkConnectInProgress && m_pixelinkNextConnectAllowedMs > QDateTime::currentMSecsSinceEpoch();
 
     const QString portXText = formatPortStatus(QStringLiteral("X"), portX, portXConnected);
@@ -2095,13 +2107,13 @@ void Spektrometr::setSequenceButtonsEnabled(bool running)
 void Spektrometr::returnStageToSequenceStart()
 {
     if (!m_stageHasReference) {
-        m_stageOffsetXUm = 0;
-        m_stageOffsetYUm = 0;
+        m_stageOffsetXUm.store(0);
+        m_stageOffsetYUm.store(0);
         return;
     }
 
-    const int dx = -m_stageOffsetXUm;
-    const int dy = -m_stageOffsetYUm;
+    const int dx = -m_stageOffsetXUm.load();
+    const int dy = -m_stageOffsetYUm.load();
     if (dx == 0 && dy == 0) {
         return;
     }
@@ -2114,8 +2126,8 @@ void Spektrometr::returnStageToSequenceStart()
         return;
     }
 
-    m_stageOffsetXUm = 0;
-    m_stageOffsetYUm = 0;
+    m_stageOffsetXUm.store(0);
+    m_stageOffsetYUm.store(0);
 }
 
 QVector<double> Spektrometr::spectrumFromFrame(const QImage& src, int roiMin, int roiMax)
@@ -2342,8 +2354,10 @@ void Spektrometr::startSequence()
 
     m_sequencePointIndex = 0;
     m_stageHasReference = true;
-    m_stageOffsetXUm = 0;
-    m_stageOffsetYUm = 0;
+    m_stageOffsetXUm.store(0);
+    m_stageOffsetYUm.store(0);
+
+    appendLog(QStringLiteral("Sequence started"));
 
     preview_map(snapshot);
 }
@@ -2529,7 +2543,9 @@ void Spektrometr::openSelectedMeasurement()
     auto* win = HeatmapWindow::createLazy(this);
     win->setAttribute(Qt::WA_DeleteOnClose, true);
     win->show();
-    win->startLoadAsync(csvPath, 0, -1);
+    QTimer::singleShot(0, win, [win, csvPath]() {
+        win->startLoadAsync(csvPath, 0, -1);
+    });
 }
 
 void Spektrometr::exportAllMeasurements()

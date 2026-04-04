@@ -37,6 +37,27 @@ static double getDouble(const QJsonObject& o, const char* key, double def)
     return def;
 }
 
+static bool getBool(const QJsonObject& o, const char* key, bool def)
+{
+    const auto v = o.value(QString::fromLatin1(key));
+    if (v.isBool()) {
+        return v.toBool();
+    }
+    if (v.isDouble()) {
+        return v.toInt() != 0;
+    }
+    if (v.isString()) {
+        const QString s = v.toString().trimmed().toLower();
+        if (s == QStringLiteral("true") || s == QStringLiteral("1") || s == QStringLiteral("yes") || s == QStringLiteral("on")) {
+            return true;
+        }
+        if (s == QStringLiteral("false") || s == QStringLiteral("0") || s == QStringLiteral("no") || s == QStringLiteral("off")) {
+            return false;
+        }
+    }
+    return def;
+}
+
 static QString getString(const QJsonObject& o, const char* key, const QString& def)
 {
     const auto v = o.value(QString::fromLatin1(key));
