@@ -1,0 +1,5 @@
+C:/Users/andrz/OneDrive/Pulpit/Spektrometr/build/CMakeFiles/Spektrometr.dir
+C:/Users/andrz/OneDrive/Pulpit/Spektrometr/build/CMakeFiles/edit_cache.dir
+C:/Users/andrz/OneDrive/Pulpit/Spektrometr/build/CMakeFiles/rebuild_cache.dir
+C:/Users/andrz/OneDrive/Pulpit/Spektrometr/build/CMakeFiles/Spektrometr_autogen_timestamp_deps.dir
+C:/Users/andrz/OneDrive/Pulpit/Spektrometr/build/CMakeFiles/Spektrometr_autogen.dir

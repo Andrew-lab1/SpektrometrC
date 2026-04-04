@@ -1,0 +1,32 @@
+[
+{
+  "directory": "C:/Users/andrz/OneDrive/Pulpit/Spektrometr/build",
+  "command": "C:\\PROGRA~1\\MIB055~1\\2022\\COMMUN~1\\VC\\Tools\\MSVC\\1444~1.352\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DQT_CORE_LIB -DQT_GUI_LIB -DQT_SERIALPORT_LIB -DQT_WIDGETS_LIB -DUNICODE -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -IC:\\Users\\andrz\\OneDrive\\Pulpit\\Spektrometr\\build\\Spektrometr_autogen\\include -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtWidgets -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtCore -external:IC:\\Qt\\6.10.1\\msvc2022_64\\mkspecs\\win32-msvc -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtGui -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtSerialPort -external:W0 /DWIN32 /D_WINDOWS /GR /EHsc -DQT_QML_DEBUG -DQT_DECLARATIVE_DEBUG /Zi /Ob0 /Od /RTC1 -std:c++17 -MDd -Zc:__cplusplus -permissive- -utf-8 /FoCMakeFiles\\Spektrometr.dir\\Spektrometr_autogen\\mocs_compilation.cpp.obj /FdCMakeFiles\\Spektrometr.dir\\ /FS -c C:\\Users\\andrz\\OneDrive\\Pulpit\\Spektrometr\\build\\Spektrometr_autogen\\mocs_compilation.cpp",
+  "file": "C:\\Users\\andrz\\OneDrive\\Pulpit\\Spektrometr\\build\\Spektrometr_autogen\\mocs_compilation.cpp",
+  "output": "CMakeFiles\\Spektrometr.dir\\Spektrometr_autogen\\mocs_compilation.cpp.obj"
+},
+{
+  "directory": "C:/Users/andrz/OneDrive/Pulpit/Spektrometr/build",
+  "command": "C:\\PROGRA~1\\MIB055~1\\2022\\COMMUN~1\\VC\\Tools\\MSVC\\1444~1.352\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DQT_CORE_LIB -DQT_GUI_LIB -DQT_SERIALPORT_LIB -DQT_WIDGETS_LIB -DUNICODE -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -IC:\\Users\\andrz\\OneDrive\\Pulpit\\Spektrometr\\build\\Spektrometr_autogen\\include -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtWidgets -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtCore -external:IC:\\Qt\\6.10.1\\msvc2022_64\\mkspecs\\win32-msvc -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtGui -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtSerialPort -external:W0 /DWIN32 /D_WINDOWS /GR /EHsc -DQT_QML_DEBUG -DQT_DECLARATIVE_DEBUG /Zi /Ob0 /Od /RTC1 -std:c++17 -MDd -Zc:__cplusplus -permissive- -utf-8 /FoCMakeFiles\\Spektrometr.dir\\Spektrometr\\main.cpp.obj /FdCMakeFiles\\Spektrometr.dir\\ /FS -c C:\\Users\\andrz\\OneDrive\\Pulpit\\Spektrometr\\Spektrometr\\main.cpp",
+  "file": "C:\\Users\\andrz\\OneDrive\\Pulpit\\Spektrometr\\Spektrometr\\main.cpp",
+  "output": "CMakeFiles\\Spektrometr.dir\\Spektrometr\\main.cpp.obj"
+},
+{
+  "directory": "C:/Users/andrz/OneDrive/Pulpit/Spektrometr/build",
+  "command": "C:\\PROGRA~1\\MIB055~1\\2022\\COMMUN~1\\VC\\Tools\\MSVC\\1444~1.352\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DQT_CORE_LIB -DQT_GUI_LIB -DQT_SERIALPORT_LIB -DQT_WIDGETS_LIB -DUNICODE -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -IC:\\Users\\andrz\\OneDrive\\Pulpit\\Spektrometr\\build\\Spektrometr_autogen\\include -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtWidgets -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtCore -external:IC:\\Qt\\6.10.1\\msvc2022_64\\mkspecs\\win32-msvc -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtGui -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtSerialPort -external:W0 /DWIN32 /D_WINDOWS /GR /EHsc -DQT_QML_DEBUG -DQT_DECLARATIVE_DEBUG /Zi /Ob0 /Od /RTC1 -std:c++17 -MDd -Zc:__cplusplus -permissive- -utf-8 /FoCMakeFiles\\Spektrometr.dir\\Spektrometr\\Spektrometr.cpp.obj /FdCMakeFiles\\Spektrometr.dir\\ /FS -c C:\\Users\\andrz\\OneDrive\\Pulpit\\Spektrometr\\Spektrometr\\Spektrometr.cpp",
+  "file": "C:\\Users\\andrz\\OneDrive\\Pulpit\\Spektrometr\\Spektrometr\\Spektrometr.cpp",
+  "output": "CMakeFiles\\Spektrometr.dir\\Spektrometr\\Spektrometr.cpp.obj"
+},
+{
+  "directory": "C:/Users/andrz/OneDrive/Pulpit/Spektrometr/build",
+  "command": "C:\\PROGRA~1\\MIB055~1\\2022\\COMMUN~1\\VC\\Tools\\MSVC\\1444~1.352\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DQT_CORE_LIB -DQT_GUI_LIB -DQT_SERIALPORT_LIB -DQT_WIDGETS_LIB -DUNICODE -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -IC:\\Users\\andrz\\OneDrive\\Pulpit\\Spektrometr\\build\\Spektrometr_autogen\\include -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtWidgets -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtCore -external:IC:\\Qt\\6.10.1\\msvc2022_64\\mkspecs\\win32-msvc -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtGui -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtSerialPort -external:W0 /DWIN32 /D_WINDOWS /GR /EHsc -DQT_QML_DEBUG -DQT_DECLARATIVE_DEBUG /Zi /Ob0 /Od /RTC1 -std:c++17 -MDd -Zc:__cplusplus -permissive- -utf-8 /FoCMakeFiles\\Spektrometr.dir\\Spektrometr\\HeatmapWindow.cpp.obj /FdCMakeFiles\\Spektrometr.dir\\ /FS -c C:\\Users\\andrz\\OneDrive\\Pulpit\\Spektrometr\\Spektrometr\\HeatmapWindow.cpp",
+  "file": "C:\\Users\\andrz\\OneDrive\\Pulpit\\Spektrometr\\Spektrometr\\HeatmapWindow.cpp",
+  "output": "CMakeFiles\\Spektrometr.dir\\Spektrometr\\HeatmapWindow.cpp.obj"
+},
+{
+  "directory": "C:/Users/andrz/OneDrive/Pulpit/Spektrometr/build",
+  "command": "C:\\PROGRA~1\\MIB055~1\\2022\\COMMUN~1\\VC\\Tools\\MSVC\\1444~1.352\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -DQT_CORE_LIB -DQT_GUI_LIB -DQT_SERIALPORT_LIB -DQT_WIDGETS_LIB -DUNICODE -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -IC:\\Users\\andrz\\OneDrive\\Pulpit\\Spektrometr\\build\\Spektrometr_autogen\\include -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtWidgets -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtCore -external:IC:\\Qt\\6.10.1\\msvc2022_64\\mkspecs\\win32-msvc -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtGui -external:IC:\\Qt\\6.10.1\\msvc2022_64\\include\\QtSerialPort -external:W0 /DWIN32 /D_WINDOWS /GR /EHsc -DQT_QML_DEBUG -DQT_DECLARATIVE_DEBUG /Zi /Ob0 /Od /RTC1 -std:c++17 -MDd -Zc:__cplusplus -permissive- -utf-8 /FoCMakeFiles\\Spektrometr.dir\\Spektrometr\\Options.cpp.obj /FdCMakeFiles\\Spektrometr.dir\\ /FS -c C:\\Users\\andrz\\OneDrive\\Pulpit\\Spektrometr\\Spektrometr\\Options.cpp",
+  "file": "C:\\Users\\andrz\\OneDrive\\Pulpit\\Spektrometr\\Spektrometr\\Options.cpp",
+  "output": "CMakeFiles\\Spektrometr.dir\\Spektrometr\\Options.cpp.obj"
+}
+]
