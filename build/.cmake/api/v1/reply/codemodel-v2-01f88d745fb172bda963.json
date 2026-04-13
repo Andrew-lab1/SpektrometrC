@@ -1,0 +1,78 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"jsonFile" : "directory-.-Debug-d0094a50bb2071803777.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2
+					]
+				}
+			],
+			"name" : "Debug",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "Spektrometr",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "Spektrometr::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-Spektrometr-Debug-f152123c3fc135eccc28.json",
+					"name" : "Spektrometr",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "Spektrometr_autogen::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-Spektrometr_autogen-Debug-d8fef85865a09ab3893e.json",
+					"name" : "Spektrometr_autogen",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "Spektrometr_autogen_timestamp_deps::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-Spektrometr_autogen_timestamp_deps-Debug-6545ea0f9f6904073f07.json",
+					"name" : "Spektrometr_autogen_timestamp_deps",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "C:/Users/andrz/OneDrive/Pulpit/Spektrometr/build",
+		"source" : "C:/Users/andrz/OneDrive/Pulpit/Spektrometr"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 8
+	}
+}

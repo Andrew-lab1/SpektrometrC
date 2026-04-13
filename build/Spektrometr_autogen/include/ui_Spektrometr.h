@@ -102,6 +102,11 @@ public:
     QComboBox *comboPortX;
     QLabel *labelPortY;
     QComboBox *comboPortY;
+    QLabel *labelResultsFolderPath;
+    QWidget *widgetResultsFolderPath;
+    QHBoxLayout *horizontalLayoutResultsFolderPath;
+    QLineEdit *editResultsFolderPath;
+    QPushButton *btnBrowseResultsFolder;
     QPushButton *btnSaveSettings;
     QMenuBar *menuBar;
     QStatusBar *statusBar;
@@ -483,10 +488,35 @@ public:
 
         formLayoutSettings->setWidget(5, QFormLayout::ItemRole::FieldRole, comboPortY);
 
+        labelResultsFolderPath = new QLabel(tabSettings);
+        labelResultsFolderPath->setObjectName("labelResultsFolderPath");
+
+        formLayoutSettings->setWidget(6, QFormLayout::ItemRole::LabelRole, labelResultsFolderPath);
+
+        widgetResultsFolderPath = new QWidget(tabSettings);
+        widgetResultsFolderPath->setObjectName("widgetResultsFolderPath");
+        horizontalLayoutResultsFolderPath = new QHBoxLayout(widgetResultsFolderPath);
+        horizontalLayoutResultsFolderPath->setSpacing(6);
+        horizontalLayoutResultsFolderPath->setContentsMargins(11, 11, 11, 11);
+        horizontalLayoutResultsFolderPath->setObjectName("horizontalLayoutResultsFolderPath");
+        horizontalLayoutResultsFolderPath->setContentsMargins(0, 0, 0, 0);
+        editResultsFolderPath = new QLineEdit(widgetResultsFolderPath);
+        editResultsFolderPath->setObjectName("editResultsFolderPath");
+
+        horizontalLayoutResultsFolderPath->addWidget(editResultsFolderPath);
+
+        btnBrowseResultsFolder = new QPushButton(widgetResultsFolderPath);
+        btnBrowseResultsFolder->setObjectName("btnBrowseResultsFolder");
+
+        horizontalLayoutResultsFolderPath->addWidget(btnBrowseResultsFolder);
+
+
+        formLayoutSettings->setWidget(6, QFormLayout::ItemRole::FieldRole, widgetResultsFolderPath);
+
         btnSaveSettings = new QPushButton(tabSettings);
         btnSaveSettings->setObjectName("btnSaveSettings");
 
-        formLayoutSettings->setWidget(6, QFormLayout::ItemRole::FieldRole, btnSaveSettings);
+        formLayoutSettings->setWidget(7, QFormLayout::ItemRole::FieldRole, btnSaveSettings);
 
         tabWidget->addTab(tabSettings, QString());
 
@@ -541,6 +571,10 @@ public:
         labelStepY->setText(QCoreApplication::translate("SpektrometrClass", "Step Y (um)", nullptr));
         labelPortX->setText(QCoreApplication::translate("SpektrometrClass", "Port X", nullptr));
         labelPortY->setText(QCoreApplication::translate("SpektrometrClass", "Port Y", nullptr));
+        labelResultsFolderPath->setText(QCoreApplication::translate("SpektrometrClass", "Results folder", nullptr));
+        editResultsFolderPath->setText(QCoreApplication::translate("SpektrometrClass", "measurement_data", nullptr));
+        editResultsFolderPath->setPlaceholderText(QCoreApplication::translate("SpektrometrClass", "measurement_data", nullptr));
+        btnBrowseResultsFolder->setText(QCoreApplication::translate("SpektrometrClass", "Browse", nullptr));
         btnSaveSettings->setText(QCoreApplication::translate("SpektrometrClass", "Save settings", nullptr));
         tabWidget->setTabText(tabWidget->indexOf(tabSettings), QCoreApplication::translate("SpektrometrClass", "Settings", nullptr));
     } // retranslateUi
