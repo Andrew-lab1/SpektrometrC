@@ -49,7 +49,7 @@ private:
     void init();
     void loop();
     void updateLoop();
-    void tickSpectrum();
+    void tickSpectrum(bool force = false);
     void tickPixelink();
     void tickPorts();
     void startPixelink();
@@ -63,8 +63,9 @@ private:
     std::atomic_bool m_pixelinkWorkerRunning{ false };
     std::atomic_bool m_pixelinkStopRequested{ false };
     QMutex m_pixelinkFrameMutex;
+    QMutex m_pixelinkCameraMutex;
     QImage m_pixelinkLatestFrame;
-    std::atomic<quint64> m_pixelinkLatestFrameSeq{ 0 };
+    std::atomic<quint64> m_pixelinkLatestFrameNumber{ 0 };
     std::atomic_bool m_spectrumWorkerRunning{ false };
     std::atomic_bool m_spectrumRenderPending{ false };
     QMutex m_spectrumPixmapMutex;
@@ -116,7 +117,7 @@ private:
     void runCalibrationMode(int modeIndex);
     bool move(int dxUm, int dyUm, QString* errOut);
     // legacy save_spec removed; use per-exposure files + save_spec_from_files
-    bool save_spec_from_files(const SequencePlanPoint& pt, const QVector<double>& exposuresMs, QString* errOut);
+    bool save_spec_from_files(const SequencePlanPoint& pt, const QVector<double>& exposuresMs, int completedExposureCount, QString* errOut);
     bool openSerialPort(QSerialPort*& port, QString& openName, const QString& wantName, const char* which);
     void showLoading(const QString& text = QString());
     void hideLoading();

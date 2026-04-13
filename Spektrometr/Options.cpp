@@ -37,27 +37,6 @@ static double getDouble(const QJsonObject& o, const char* key, double def)
     return def;
 }
 
-static bool getBool(const QJsonObject& o, const char* key, bool def)
-{
-    const auto v = o.value(QString::fromLatin1(key));
-    if (v.isBool()) {
-        return v.toBool();
-    }
-    if (v.isDouble()) {
-        return v.toInt() != 0;
-    }
-    if (v.isString()) {
-        const QString s = v.toString().trimmed().toLower();
-        if (s == QStringLiteral("true") || s == QStringLiteral("1") || s == QStringLiteral("yes") || s == QStringLiteral("on")) {
-            return true;
-        }
-        if (s == QStringLiteral("false") || s == QStringLiteral("0") || s == QStringLiteral("no") || s == QStringLiteral("off")) {
-            return false;
-        }
-    }
-    return def;
-}
-
 static QString getString(const QJsonObject& o, const char* key, const QString& def)
 {
     const auto v = o.value(QString::fromLatin1(key));
@@ -107,6 +86,7 @@ Options loadOptions(const QString& path)
     opt.gain = getDouble(o, "gain", opt.gain);
 
     opt.sequence_exposure_times = getString(o, "sequence_exposure_times", opt.sequence_exposure_times);
+    opt.results_folder_path = getString(o, "results_folder_path", opt.results_folder_path);
 
     opt.spectrum_range_min = getDouble(o, "spectrum_range_min", opt.spectrum_range_min);
     opt.spectrum_range_max = getDouble(o, "spectrum_range_max", opt.spectrum_range_max);
@@ -143,6 +123,7 @@ bool saveOptions(const QString& path, const Options& opt)
     o.insert(QStringLiteral("gain"), opt.gain);
 
     o.insert(QStringLiteral("sequence_exposure_times"), opt.sequence_exposure_times);
+    o.insert(QStringLiteral("results_folder_path"), opt.results_folder_path);
 
     o.insert(QStringLiteral("spectrum_range_min"), opt.spectrum_range_min);
     o.insert(QStringLiteral("spectrum_range_max"), opt.spectrum_range_max);

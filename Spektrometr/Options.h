@@ -26,6 +26,8 @@ struct Options
 
     QString sequence_exposure_times = QString();
 
+    QString results_folder_path = QStringLiteral("measurement_data");
+
     double spectrum_range_min = 0.0;
     double spectrum_range_max = 2048.0;
 

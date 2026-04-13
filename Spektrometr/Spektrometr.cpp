@@ -48,6 +48,17 @@
 #include <cmath>
 #include <limits>
 
+#ifdef Q_OS_WIN
+#if __has_include(<PixeLINKApi.h>)
+#include <PixeLINKApi.h>
+#define HAVE_PIXELINK_SDK 1
+#else
+#define HAVE_PIXELINK_SDK 0
+#endif
+#else
+#define HAVE_PIXELINK_SDK 0
+#endif
+
 #if __has_include(<opencv2/opencv.hpp>)
 #include <opencv2/opencv.hpp>
 #define SPEKTROMETR_HAS_OPENCV 1
@@ -191,10 +202,21 @@ void Spektrometr::hideLoading()
     setLoadingOverlayVisible(false);
 }
 
-bool Spektrometr::save_spec_from_files(const SequencePlanPoint& pt, const QVector<double>& exposuresMs, QString* errOut)
+bool Spektrometr::save_spec_from_files(const SequencePlanPoint& pt, const QVector<double>& exposuresMs, int completedExposureCount, QString* errOut)
 {
     if (errOut) errOut->clear();
-    const int nExp = exposuresMs.size();
+    const int totalExp = exposuresMs.size();
+    if (completedExposureCount < totalExp) {
+        if (errOut) {
+            *errOut = QStringLiteral("Incomplete exposure set for point %1/%2: expected %3, got %4")
+                .arg(pt.ix)
+                .arg(pt.iy)
+                .arg(totalExp)
+                .arg(completedExposureCount);
+        }
+        return false;
+    }
+    const int nExp = qMin(completedExposureCount, totalExp);
     if (nExp <= 0) {
         if (errOut) *errOut = QStringLiteral("No exposures");
         return false;
@@ -426,8 +448,6 @@ void Spektrometr::preview_map(SequenceRunSnapshot snapshot)
     moves.push_back({ -((nx - 1) * stepXum), 0 });
     // Bottom-left -> top-left.
     moves.push_back({ 0, -((ny - 1) * stepYum) });
-    // Top-left -> center.
-    moves.push_back({ cx * stepXum, cy * stepYum });
 
     auto idx = std::make_shared<int>(0);
     auto cont = std::make_shared<std::function<void()>>();
@@ -468,17 +488,35 @@ void Spektrometr::apply_roi(int roiMin, int roiMax)
 {
     m_options.spectrum_range_min = roiMin;
     m_options.spectrum_range_max = roiMax;
-    if (ui.spinRoiMin) ui.spinRoiMin->setValue(m_options.spectrum_range_min);
-    if (ui.spinRoiMax) ui.spinRoiMax->setValue(m_options.spectrum_range_max);
+    if (ui.spinRoiMin) {
+        QSignalBlocker blocker(ui.spinRoiMin);
+        ui.spinRoiMin->setValue(m_options.spectrum_range_min);
+    }
+    if (ui.spinRoiMax) {
+        QSignalBlocker blocker(ui.spinRoiMax);
+        ui.spinRoiMax->setValue(m_options.spectrum_range_max);
+    }
     ::saveOptions(m_optionsPath, m_options);
     appendLog(QStringLiteral("ROI applied: %1 - %2").arg(m_options.spectrum_range_min).arg(m_options.spectrum_range_max));
-    tickSpectrum();
+    tickSpectrum(true);
 }
 
 bool Spektrometr::move(int dxUm, int dyUm, QString* errOut)
 {
     if (errOut) errOut->clear();
 #ifdef Q_OS_WIN
+    if (QThread::currentThread() != thread()) {
+        bool ok = false;
+        QString localErr;
+        QMetaObject::invokeMethod(this, [this, dxUm, dyUm, &ok, &localErr]() {
+            ok = move(dxUm, dyUm, &localErr);
+        }, Qt::BlockingQueuedConnection);
+        if (errOut) {
+            *errOut = localErr;
+        }
+        return ok;
+    }
+
     if (dxUm == 0 && dyUm == 0) return true;
     if (!portsOpen()) {
         if (errOut) *errOut = QStringLiteral("Motors disconnected");
@@ -496,7 +534,7 @@ bool Spektrometr::move(int dxUm, int dyUm, QString* errOut)
             if (errOut) *errOut = err;
             return false;
         }
-        if (m_portX->write(cmd) != cmd.size()) {
+        if (m_portX->write(cmd) != cmd.size() || !m_portX->waitForBytesWritten(1000)) {
             err = QStringLiteral("X write failed: %1").arg(m_portX->errorString());
             if (errOut) *errOut = err;
             return false;
@@ -510,7 +548,7 @@ bool Spektrometr::move(int dxUm, int dyUm, QString* errOut)
             if (errOut) *errOut = err;
             return false;
         }
-        if (m_portY->write(cmd) != cmd.size()) {
+        if (m_portY->write(cmd) != cmd.size() || !m_portY->waitForBytesWritten(1000)) {
             err = QStringLiteral("Y write failed: %1").arg(m_portY->errorString());
             if (errOut) *errOut = err;
             return false;
@@ -540,24 +578,48 @@ void Spektrometr::setLoadingOverlayVisible(bool visible, const QString& text)
     m_loadingOverlay->setVisible(visible);
 }
 
-static QDir resolveMeasurementDataDir()
+static QDir resolveMeasurementDataDir(const QString& configuredPath, const QString& optionsPath)
 {
-    const QStringList bases = {
-        QDir::currentPath(),
-        QCoreApplication::applicationDirPath(),
-        QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(".."),
-        QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("../.."),
-        QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("../../..")
-    };
-
-    for (const QString& base : bases) {
-        const QDir d(QDir(base).absoluteFilePath("measurement_data"));
-        if (d.exists()) {
-            return d;
-        }
+    QString path = configuredPath.trimmed();
+    if (path.isEmpty()) {
+        path = QStringLiteral("measurement_data");
     }
 
-    return QDir(QDir::current().absoluteFilePath("measurement_data"));
+    const QFileInfo configuredInfo(path);
+    if (configuredInfo.isAbsolute()) {
+        return QDir(configuredInfo.absoluteFilePath());
+    }
+
+    const QFileInfo optionsInfo(optionsPath);
+    const QDir baseDir = optionsPath.isEmpty() ? QDir::current() : optionsInfo.absoluteDir();
+    return QDir(baseDir.absoluteFilePath(path));
+}
+
+static int removeEmptyParentMeasurementFolders(const QString& startPath, const QString& stopAtPath)
+{
+    int removed = 0;
+    QString currentPath = QDir(startPath).absolutePath();
+    const QString stopPath = QDir(stopAtPath).absolutePath();
+
+    while (!currentPath.isEmpty() && currentPath != stopPath) {
+        QDir currentDir(currentPath);
+        const auto entries = currentDir.entryInfoList(QDir::NoDotAndDotDot | QDir::AllEntries, QDir::NoSort);
+        if (!entries.isEmpty()) {
+            break;
+        }
+
+        const QFileInfo currentInfo(currentPath);
+        QDir parentDir = currentInfo.dir();
+        const QString leafName = currentInfo.fileName();
+        if (leafName.isEmpty() || !parentDir.rmdir(leafName)) {
+            break;
+        }
+
+        ++removed;
+        currentPath = parentDir.absolutePath();
+    }
+
+    return removed;
 }
 
 struct MeasurementListEntry {
@@ -603,17 +665,6 @@ static QVector<MeasurementListEntry> collectMeasurementListEntries(const QString
 #ifdef Q_OS_WIN
 #include <QSettings>
 #include <windows.h>
-#endif
-
-#ifdef Q_OS_WIN
-#if __has_include(<PixeLINKApi.h>)
-#include <PixeLINKApi.h>
-#define HAVE_PIXELINK_SDK 1
-#else
-#define HAVE_PIXELINK_SDK 0
-#endif
-#else
-#define HAVE_PIXELINK_SDK 0
 #endif
 
 #if HAVE_PIXELINK_SDK
@@ -685,6 +736,65 @@ static bool setPixelinkGain(HANDLE cam, double gain, QString* errOut)
     return true;
 }
 
+static bool capturePixelinkFrame(HANDLE cam, QImage* frameOut, quint64* frameNumberOut, QString* errOut)
+{
+    if (errOut) errOut->clear();
+    if (frameOut) *frameOut = QImage();
+    if (frameNumberOut) *frameNumberOut = 0;
+    if (cam == nullptr || !frameOut) return false;
+
+    F32 roi[4] = { 0.0f, 0.0f, 640.0f, 480.0f };
+    U32 roiFlags = 0;
+    U32 roiCount = 4;
+    (void)PxLGetFeature(cam, FEATURE_ROI, &roiFlags, &roiCount, roi);
+
+    F32 pixelFormat = F32(PIXEL_FORMAT_MONO8);
+    U32 pixelFormatFlags = 0;
+    U32 pixelFormatCount = 1;
+    (void)PxLGetFeature(cam, FEATURE_PIXEL_FORMAT, &pixelFormatFlags, &pixelFormatCount, &pixelFormat);
+
+    const int width = qMax(1, int(std::lround(double(roi[2]))));
+    const int height = qMax(1, int(std::lround(double(roi[3]))));
+    const qint64 bufferSize64 = qint64(width) * qint64(height) * 4;
+    if (bufferSize64 <= 0 || bufferSize64 > std::numeric_limits<int>::max()) {
+        if (errOut) *errOut = QStringLiteral("Invalid frame buffer size");
+        return false;
+    }
+
+    QByteArray rawFrame;
+    rawFrame.resize(int(bufferSize64));
+
+    FRAME_DESC frameDesc = {};
+    frameDesc.uSize = sizeof(frameDesc);
+    const PXL_RETURN_CODE frameRc = PxLGetNextFrame(cam, U32(rawFrame.size()), rawFrame.data(), &frameDesc);
+    if (!API_SUCCESS(frameRc)) {
+        if (errOut) *errOut = QStringLiteral("PxLGetNextFrame failed (0x%1)").arg(QString::number(frameRc, 16));
+        return false;
+    }
+
+    if (frameNumberOut) {
+        *frameNumberOut = frameDesc.u64FrameNumber != 0 ? frameDesc.u64FrameNumber : frameDesc.uFrameNumber;
+    }
+
+    QByteArray grayFrame;
+    grayFrame.resize(width * height);
+    U32 graySize = U32(grayFrame.size());
+    const PXL_RETURN_CODE formatRc = PxLFormatImage(rawFrame.constData(), &frameDesc, PIXEL_FORMAT_MONO8, grayFrame.data(), &graySize);
+    if (!API_SUCCESS(formatRc) || graySize == 0) {
+        if (U32(pixelFormat) == PIXEL_FORMAT_MONO8) {
+            QImage image(reinterpret_cast<const uchar*>(rawFrame.constData()), width, height, width, QImage::Format_Grayscale8);
+            *frameOut = image.copy();
+            return !frameOut->isNull();
+        }
+        if (errOut) *errOut = QStringLiteral("PxLFormatImage failed (0x%1)").arg(QString::number(formatRc, 16));
+        return false;
+    }
+
+    QImage image(reinterpret_cast<const uchar*>(grayFrame.constData()), width, height, width, QImage::Format_Grayscale8);
+    *frameOut = image.copy();
+    return !frameOut->isNull();
+}
+
 #endif
 
 Spektrometr::Spektrometr(QWidget *parent)
@@ -737,6 +847,7 @@ void Spektrometr::init()
         openSerialPort(m_portY, m_openPortY, wantY, "Y");
     }
 #endif
+    startPixelink();
 
     // Signals
     if (ui.btnStartSequence) {
@@ -765,9 +876,37 @@ void Spektrometr::init()
         });
     }
 
+    if (ui.btnBrowseResultsFolder && ui.editResultsFolderPath) {
+        connect(ui.btnBrowseResultsFolder, &QPushButton::clicked, this, [this]() {
+            const QString currentPath = ui.editResultsFolderPath->text().trimmed().isEmpty()
+                ? m_options.results_folder_path
+                : ui.editResultsFolderPath->text().trimmed();
+            const QDir startDir = resolveMeasurementDataDir(currentPath, m_optionsPath);
+            const QString selectedPath = QFileDialog::getExistingDirectory(this, tr("Select results folder"), startDir.absolutePath());
+            if (selectedPath.isEmpty()) {
+                return;
+            }
+
+            {
+                QSignalBlocker blocker(ui.editResultsFolderPath);
+                ui.editResultsFolderPath->setText(selectedPath);
+            }
+
+            m_options.results_folder_path = selectedPath;
+            ::saveOptions(m_optionsPath, m_options);
+            refreshResults();
+        });
+    }
+
     if (ui.btnSaveSettings) {
         connect(ui.btnSaveSettings, &QPushButton::clicked, this, [this]() {
             refreshPortLists();
+            if (ui.editResultsFolderPath) {
+                m_options.results_folder_path = ui.editResultsFolderPath->text().trimmed();
+            }
+            if (m_options.results_folder_path.trimmed().isEmpty()) {
+                m_options.results_folder_path = QStringLiteral("measurement_data");
+            }
             saveOptions();
             if (::saveOptions(m_optionsPath, m_options)) {
                 appendLog(QStringLiteral("Saved options.json"));
@@ -780,6 +919,7 @@ void Spektrometr::init()
                     openSerialPort(m_portY, m_openPortY, wantY, "Y");
                 }
 #endif
+                refreshResults();
                 setSequenceButtonsEnabled(false);
             } else {
                 QMessageBox::warning(this, tr("Settings"), tr("Failed to save options.json"));
@@ -869,10 +1009,9 @@ void Spektrometr::init()
 
     if (ui.btnApplyRoi) {
         connect(ui.btnApplyRoi, &QPushButton::clicked, this, [this]() {
-            m_options.spectrum_range_min = ui.spinRoiMin ? ui.spinRoiMin->value() : m_options.spectrum_range_min;
-            m_options.spectrum_range_max = ui.spinRoiMax ? ui.spinRoiMax->value() : m_options.spectrum_range_max;
-            ::saveOptions(m_optionsPath, m_options);
-            tickSpectrum();
+            const int roiMin = ui.spinRoiMin ? int(ui.spinRoiMin->value()) : int(m_options.spectrum_range_min);
+            const int roiMax = ui.spinRoiMax ? int(ui.spinRoiMax->value()) : int(m_options.spectrum_range_max);
+            apply_roi(roiMin, roiMax);
         });
     }
 
@@ -880,23 +1019,29 @@ void Spektrometr::init()
         connect(ui.btnResetRoi, &QPushButton::clicked, this, [this]() {
             m_options.spectrum_range_min = 0.0;
             m_options.spectrum_range_max = 2048.0;
-            if (ui.spinRoiMin) ui.spinRoiMin->setValue(m_options.spectrum_range_min);
-            if (ui.spinRoiMax) ui.spinRoiMax->setValue(m_options.spectrum_range_max);
+            if (ui.spinRoiMin) {
+                QSignalBlocker blocker(ui.spinRoiMin);
+                ui.spinRoiMin->setValue(m_options.spectrum_range_min);
+            }
+            if (ui.spinRoiMax) {
+                QSignalBlocker blocker(ui.spinRoiMax);
+                ui.spinRoiMax->setValue(m_options.spectrum_range_max);
+            }
             ::saveOptions(m_optionsPath, m_options);
-            tickSpectrum();
+            tickSpectrum(true);
         });
     }
 
     if (ui.spinRoiMin) {
         connect(ui.spinRoiMin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double) {
             m_options.spectrum_range_min = ui.spinRoiMin ? ui.spinRoiMin->value() : m_options.spectrum_range_min;
-            tickSpectrum();
+            tickSpectrum(true);
         });
     }
     if (ui.spinRoiMax) {
         connect(ui.spinRoiMax, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double) {
             m_options.spectrum_range_max = ui.spinRoiMax ? ui.spinRoiMax->value() : m_options.spectrum_range_max;
-            tickSpectrum();
+            tickSpectrum(true);
         });
     }
 
@@ -955,7 +1100,7 @@ void Spektrometr::init()
     updateConnectionStatusUi();
 
     QTimer::singleShot(0, this, [this]() {
-        tickSpectrum();
+        tickSpectrum(true);
     });
 }
 
@@ -983,10 +1128,10 @@ void Spektrometr::updateLoop()
     QTimer::singleShot(livePreviewNeeded ? 250 : 1000, this, [this]() { updateLoop(); });
 }
 
-void Spektrometr::tickSpectrum()
+void Spektrometr::tickSpectrum(bool force)
 {
     const bool spectrumTabActive = !ui.tabWidget || !ui.tabSpectrum || ui.tabWidget->currentWidget() == ui.tabSpectrum;
-    if (!m_sequenceRunning.load() && !spectrumTabActive) {
+    if (!force && !m_sequenceRunning.load() && !spectrumTabActive) {
         return;
     }
 
@@ -1007,13 +1152,15 @@ void Spektrometr::tickSpectrum()
     const QSize targetSize = ui.labelSpectrumPlaceholder->size().expandedTo(QSize(640, 260));
     const int roiMin = int(m_options.spectrum_range_min);
     const int roiMax = int(m_options.spectrum_range_max);
+    const int roiStart = qMin(roiMin, roiMax);
+    const int roiEnd = qMax(roiMin, roiMax);
     const double calPixel1 = m_options.spectrum_cal_pixel1;
     const double calNm1 = m_options.spectrum_cal_nm1;
     const double calPixel2 = m_options.spectrum_cal_pixel2;
     const double calNm2 = m_options.spectrum_cal_nm2;
     const QPointer<Spektrometr> self(this);
 
-    std::thread([self, frame = std::move(frame), targetSize, roiMin, roiMax, calPixel1, calNm1, calPixel2, calNm2]() mutable {
+    std::thread([self, frame = std::move(frame), targetSize, roiMin, roiMax, roiStart, roiEnd, calPixel1, calNm1, calPixel2, calNm2]() mutable {
         QElapsedTimer workerTimer;
         workerTimer.start();
         auto wavelengthForPixel = [calPixel1, calNm1, calPixel2, calNm2](double pixel) -> double {
@@ -1026,7 +1173,7 @@ void Spektrometr::tickSpectrum()
             return (slope * pixel) + intercept;
         };
 
-        auto buildSpectrumChart = [roiMin, roiMax, wavelengthForPixel](const QVector<double>& spectrum, const QSize& size, const QString& centerText) -> QImage {
+        auto buildSpectrumChart = [roiMin, roiMax, roiStart, wavelengthForPixel](const QVector<double>& spectrum, const QSize& size, const QString& centerText) -> QImage {
             const int w = qMax(320, size.width());
             const int h = qMax(220, size.height());
             QImage chart(w, h, QImage::Format_ARGB32_Premultiplied);
@@ -1145,7 +1292,7 @@ void Spektrometr::tickSpectrum()
                 const int ticks = 5;
                 for (int i = 0; i <= ticks; ++i) {
                     const double t = double(i) / double(ticks);
-                    const double pixel = t * double(qMax(1, spectrum.size() - 1));
+                    const double pixel = roiStart + (t * double(qMax(1, spectrum.size() - 1)));
                     const double wavelength = wavelengthForPixel(pixel);
                     const int x = plot.left() + int(std::round(t * plot.width()));
                     p.drawLine(QPoint(x, plot.bottom()), QPoint(x, plot.bottom() + 4));
@@ -1253,44 +1400,13 @@ void Spektrometr::tickPixelink()
                     return;
                 }
 
-                QImage frame;
+                    QImage frame;
+                    quint64 frameNumber = 0;
 #if HAVE_PIXELINK_SDK
                 if (self->m_pixelinkCamera != nullptr && self->m_pixelinkStreaming) {
-                    F32 roi[4] = { 0.0f, 0.0f, 640.0f, 480.0f };
-                    U32 roiFlags = 0;
-                    U32 roiCount = 4;
-                    (void)PxLGetFeature(self->m_pixelinkCamera, FEATURE_ROI, &roiFlags, &roiCount, roi);
-
-                    F32 pixelFormat = F32(PIXEL_FORMAT_MONO8);
-                    U32 pixelFormatFlags = 0;
-                    U32 pixelFormatCount = 1;
-                    (void)PxLGetFeature(self->m_pixelinkCamera, FEATURE_PIXEL_FORMAT, &pixelFormatFlags, &pixelFormatCount, &pixelFormat);
-
-                    const int width = qMax(1, int(std::lround(double(roi[2]))));
-                    const int height = qMax(1, int(std::lround(double(roi[3]))));
-                    int bytesPerPixel = 4;
-                    const qint64 bufferSize64 = qint64(width) * qint64(height) * qint64(bytesPerPixel);
-                    if (bufferSize64 > 0 && bufferSize64 <= std::numeric_limits<int>::max()) {
-                        QByteArray rawFrame;
-                        rawFrame.resize(int(bufferSize64));
-
-                        FRAME_DESC frameDesc = {};
-                        frameDesc.uSize = sizeof(frameDesc);
-                        const PXL_RETURN_CODE frameRc = PxLGetNextFrame(self->m_pixelinkCamera, U32(rawFrame.size()), rawFrame.data(), &frameDesc);
-                        if (API_SUCCESS(frameRc)) {
-                            QByteArray grayFrame;
-                            grayFrame.resize(width * height);
-                            U32 graySize = U32(grayFrame.size());
-                            const PXL_RETURN_CODE formatRc = PxLFormatImage(rawFrame.constData(), &frameDesc, PIXEL_FORMAT_MONO8, grayFrame.data(), &graySize);
-                            if (API_SUCCESS(formatRc) && graySize > 0) {
-                                QImage image(reinterpret_cast<const uchar*>(grayFrame.constData()), width, height, width, QImage::Format_Grayscale8);
-                                frame = image.copy();
-                            } else if (U32(pixelFormat) == PIXEL_FORMAT_MONO8) {
-                                QImage image(reinterpret_cast<const uchar*>(rawFrame.constData()), width, height, width, QImage::Format_Grayscale8);
-                                frame = image.copy();
-                            }
-                        }
-                    }
+                    QString captureErr;
+                    QMutexLocker lock(&self->m_pixelinkCameraMutex);
+                    (void)capturePixelinkFrame(self->m_pixelinkCamera, &frame, &frameNumber, &captureErr);
                 }
 #endif
 
@@ -1308,7 +1424,10 @@ void Spektrometr::tickPixelink()
                         QMutexLocker lock(&self->m_pixelinkFrameMutex);
                         self->m_pixelinkLatestFrame = frame;
                     }
-                    self->m_pixelinkLatestFrameSeq.fetch_add(1);
+                    if (frameNumber == 0) {
+                        frameNumber = self->m_pixelinkLatestFrameNumber.load();
+                    }
+                    self->m_pixelinkLatestFrameNumber.store(frameNumber);
 
                     rendered = frame;
 #if SPEKTROMETR_HAS_OPENCV
@@ -1607,6 +1726,21 @@ void Spektrometr::runSequenceLoop(SequenceRunSnapshot snapshot)
         return;
     }
 
+    if (m_sequencePointIndex >= m_movementMap.size()) {
+        return;
+    }
+
+    {
+        const SequencePlanPoint firstPt = m_movementMap.at(m_sequencePointIndex);
+        const int dxUm = firstPt.xUm - m_stageOffsetXUm.load();
+        const int dyUm = firstPt.yUm - m_stageOffsetYUm.load();
+        QString moveErr;
+        if ((dxUm != 0 || dyUm != 0) && !move(dxUm, dyUm, &moveErr)) {
+            pauseSequence(moveErr);
+            return;
+        }
+    }
+
     while (m_sequenceRunning.load() && m_sequencePointIndex < m_movementMap.size()) {
         if (!waitForSequenceRunning()) {
             return;
@@ -1622,16 +1756,6 @@ void Spektrometr::runSequenceLoop(SequenceRunSnapshot snapshot)
         }
 
         const SequencePlanPoint pt = m_movementMap.at(m_sequencePointIndex);
-        const int dxUm = pt.xUm - m_stageOffsetXUm.load();
-        const int dyUm = pt.yUm - m_stageOffsetYUm.load();
-        QString moveErr;
-        if ((dxUm != 0 || dyUm != 0) && !move(dxUm, dyUm, &moveErr)) {
-            pauseSequence(moveErr);
-            if (!waitForSequenceRunning()) {
-                return;
-            }
-            continue;
-        }
 
         bool pointNeedsRetry = false;
         int completedExposureCount = 0;
@@ -1657,6 +1781,9 @@ void Spektrometr::runSequenceLoop(SequenceRunSnapshot snapshot)
                 .arg(expIdx + 1)
                 .arg(exposures.size()));
 
+            QElapsedTimer exposureChangeTimer;
+            exposureChangeTimer.start();
+
             QString expErr;
 #if HAVE_PIXELINK_SDK
             if (!setPixelinkExposure(m_pixelinkCamera, expMs, &expErr) && !expErr.isEmpty()) {
@@ -1677,10 +1804,14 @@ void Spektrometr::runSequenceLoop(SequenceRunSnapshot snapshot)
             }
 #endif
 
+            const qint64 minFrameWaitMs = qMax<qint64>(1, qint64(std::ceil(expMs)));
+            const qint64 frameTimeoutMs = qMax<qint64>(5000, minFrameWaitMs + 1000);
+
+            // Wait for the new exposure to have time to produce a frame, then accept
+            // only a frame newer than the settled baseline.
+            const quint64 frameBaseline = m_pixelinkLatestFrameNumber.load();
+
             QImage frame;
-            const quint64 prevSeq = m_pixelinkLatestFrameSeq.load();
-            QElapsedTimer waitTimer;
-            waitTimer.start();
             bool frameReady = false;
             while (m_sequenceRunning.load() && !QThread::currentThread()->isInterruptionRequested()) {
                 if (!portsOpen() || !pixelinkOpen()) {
@@ -1692,13 +1823,27 @@ void Spektrometr::runSequenceLoop(SequenceRunSnapshot snapshot)
                     break;
                 }
 
-                if (!m_sequencePaused.load() && m_pixelinkLatestFrameSeq.load() != prevSeq) {
-                    QMutexLocker lock(&m_pixelinkFrameMutex);
-                    frame = m_pixelinkLatestFrame;
-                    if (!frame.isNull()) {
-                        frameReady = true;
-                        break;
+                if (!m_sequencePaused.load()) {
+#if HAVE_PIXELINK_SDK
+                    if (exposureChangeTimer.elapsed() >= minFrameWaitMs) {
+                        quint64 capturedFrameNumber = 0;
+                        QImage capturedFrame;
+                        QString captureErr;
+                        {
+                            QMutexLocker cameraLock(&m_pixelinkCameraMutex);
+                            if (capturePixelinkFrame(m_pixelinkCamera, &capturedFrame, &capturedFrameNumber, &captureErr) && capturedFrameNumber > frameBaseline) {
+                                frame = capturedFrame;
+                                frameReady = !frame.isNull();
+                            }
+                        }
+                        if (frameReady) {
+                            QMutexLocker lock(&m_pixelinkFrameMutex);
+                            m_pixelinkLatestFrame = frame;
+                            m_pixelinkLatestFrameNumber.store(capturedFrameNumber);
+                            break;
+                        }
                     }
+#endif
                 }
 
                 if (m_sequencePaused.load()) {
@@ -1708,7 +1853,7 @@ void Spektrometr::runSequenceLoop(SequenceRunSnapshot snapshot)
                     continue;
                 }
 
-                if (waitTimer.elapsed() > 5000) {
+                if (exposureChangeTimer.elapsed() > frameTimeoutMs) {
                     pauseSequence(QStringLiteral("PixeLink frame timeout"));
                     if (!waitForSequenceRunning()) {
                         return;
@@ -1747,6 +1892,7 @@ void Spektrometr::runSequenceLoop(SequenceRunSnapshot snapshot)
                 }
                 ++completedExposureCount;
             }
+
         }
 
         if (pointNeedsRetry) {
@@ -1761,7 +1907,7 @@ void Spektrometr::runSequenceLoop(SequenceRunSnapshot snapshot)
         }
 
         QString errf;
-        if (!save_spec_from_files(pt, exposures, &errf)) {
+        if (!save_spec_from_files(pt, exposures, completedExposureCount, &errf)) {
             pauseSequence(errf.isEmpty() ? QStringLiteral("Failed to save spectra") : errf);
             if (!waitForSequenceRunning()) {
                 return;
@@ -1770,6 +1916,22 @@ void Spektrometr::runSequenceLoop(SequenceRunSnapshot snapshot)
         }
 
         ++m_sequencePointIndex;
+
+        if (!m_sequenceRunning.load() || m_sequencePaused.load() || m_sequencePointIndex >= m_movementMap.size()) {
+            continue;
+        }
+
+        const SequencePlanPoint nextPt = m_movementMap.at(m_sequencePointIndex);
+        const int dxUm = nextPt.xUm - m_stageOffsetXUm.load();
+        const int dyUm = nextPt.yUm - m_stageOffsetYUm.load();
+        QString moveErr;
+        if ((dxUm != 0 || dyUm != 0) && !move(dxUm, dyUm, &moveErr)) {
+            pauseSequence(moveErr);
+            if (!waitForSequenceRunning()) {
+                return;
+            }
+            continue;
+        }
 
         if (!m_sequenceRunning.load() || m_sequencePaused.load()) {
             return;
@@ -1873,6 +2035,14 @@ void Spektrometr::loadOptionsToUi()
         edit->setText(m_options.sequence_exposure_times);
     }
 
+    if (m_options.results_folder_path.trimmed().isEmpty()) {
+        m_options.results_folder_path = QStringLiteral("measurement_data");
+    }
+    if (ui.editResultsFolderPath) {
+        QSignalBlocker b(ui.editResultsFolderPath);
+        ui.editResultsFolderPath->setText(m_options.results_folder_path);
+    }
+
     m_sequenceExposureTimesMs.clear();
     const auto parts = m_options.sequence_exposure_times.split(';', Qt::SkipEmptyParts);
     for (QString part : parts) {
@@ -1972,7 +2142,7 @@ void Spektrometr::refreshPortLists()
     const QString currentX = ui.comboPortX ? ui.comboPortX->currentText() : m_options.port_x;
     const QString currentY = ui.comboPortY ? ui.comboPortY->currentText() : m_options.port_y;
 
-    auto fillCombo = [](QComboBox* combo, const QString& selected, const QList<QSerialPortInfo>& /*unused*/, const QVector<QString>& names) {
+    auto fillCombo = [](QComboBox* combo, const QString& selected, const QVector<QString>& names) {
         if (!combo) return;
         QSignalBlocker b(combo);
         combo->clear();
@@ -1995,8 +2165,8 @@ void Spektrometr::refreshPortLists()
     if (names.isEmpty()) {
         names.push_back(QStringLiteral("(none)"));
     }
-    fillCombo(ui.comboPortX, currentX.isEmpty() ? m_options.port_x : currentX, ports, names);
-    fillCombo(ui.comboPortY, currentY.isEmpty() ? m_options.port_y : currentY, ports, names);
+    fillCombo(ui.comboPortX, currentX.isEmpty() ? m_options.port_x : currentX, names);
+    fillCombo(ui.comboPortY, currentY.isEmpty() ? m_options.port_y : currentY, names);
 #else
     if (ui.comboPortX) {
         QSignalBlocker b(ui.comboPortX);
@@ -2143,34 +2313,34 @@ QVector<double> Spektrometr::spectrumFromFrame(const QImage& src, int roiMin, in
         return {};
     }
 
-    int y1 = qBound(0, qMin(roiMin, roiMax), h - 1);
-    int y2 = qBound(0, qMax(roiMin, roiMax), h - 1);
-    if (y2 < y1) qSwap(y1, y2);
+    int x1 = qBound(0, qMin(roiMin, roiMax), w - 1);
+    int x2 = qBound(0, qMax(roiMin, roiMax), w - 1);
+    if (x2 < x1) qSwap(x1, x2);
 
     QVector<double> spec;
-    spec.resize(w);
-    const int rows = qMax(1, y2 - y1 + 1);
+    spec.resize(x2 - x1 + 1);
+    const int rows = qMax(1, h);
 
 #if SPEKTROMETR_HAS_OPENCV
     cv::Mat mat(h, w, CV_8UC1, const_cast<uchar*>(img.bits()), img.bytesPerLine());
-    cv::Mat roi = mat.rowRange(y1, y2 + 1);
+    cv::Mat roi = mat.colRange(x1, x2 + 1);
     cv::Mat colSum;
     cv::reduce(roi, colSum, 0, cv::REDUCE_SUM, CV_64F);
     if (!colSum.empty()) {
         const double* sums = colSum.ptr<double>(0);
-        for (int x = 0; x < w; ++x) {
+        for (int x = 0; x < spec.size(); ++x) {
             spec[x] = sums[x] / double(rows);
         }
         return spec;
     }
 #endif
 
-    for (int x = 0; x < w; ++x) {
+    for (int x = x1; x <= x2; ++x) {
         double sum = 0.0;
-        for (int y = y1; y <= y2; ++y) {
+        for (int y = 0; y < h; ++y) {
             sum += qGray(img.pixel(x, y));
         }
-        spec[x] = sum / double(rows);
+        spec[x - x1] = sum / double(rows);
     }
 
     return spec;
@@ -2315,18 +2485,6 @@ void Spektrometr::startSequence()
     if (m_sequenceRunning.load() || (m_sequenceWorkerThread && m_sequenceWorkerThread->isRunning())) {
         return;
     }
-    refreshPortLists();
-
-#ifdef Q_OS_WIN
-    {
-        const QString wantX = ui.comboPortX ? normalizedSerialPortName(ui.comboPortX->currentText()) : normalizedSerialPortName(m_options.port_x);
-        const QString wantY = ui.comboPortY ? normalizedSerialPortName(ui.comboPortY->currentText()) : normalizedSerialPortName(m_options.port_y);
-        openSerialPort(m_portX, m_openPortX, wantX, "X");
-        openSerialPort(m_portY, m_openPortY, wantY, "Y");
-    }
-#endif
-
-    startPixelink();
 
     QString reason;
     if (!check_hardware(&reason)) {
@@ -2335,7 +2493,7 @@ void Spektrometr::startSequence()
         return;
     }
 
-    QDir root = resolveMeasurementDataDir();
+    QDir root = resolveMeasurementDataDir(m_options.results_folder_path, m_optionsPath);
     if (!root.exists()) {
         root.mkpath(QStringLiteral("."));
     }
@@ -2373,10 +2531,16 @@ void Spektrometr::stopSequence()
 
     if (workerRunning) {
         m_sequenceWorkerThread->requestInterruption();
+    }
+
+    if (m_sequenceWorkerThread) {
+        connect(m_sequenceWorkerThread, &QThread::finished, this, [this]() {
+            if (m_stageHasReference) {
+                returnStageToSequenceStart();
+            }
+        }, Qt::SingleShotConnection);
     } else if (m_stageHasReference) {
-        QTimer::singleShot(0, this, [this]() {
-            returnStageToSequenceStart();
-        });
+        returnStageToSequenceStart();
     }
 
     setSequenceButtonsEnabled(false);
@@ -2425,7 +2589,9 @@ void Spektrometr::finalizeSequenceSuccess()
     m_sequencePaused.store(false);
     setSequenceButtonsEnabled(false);
     refreshResults();
-    returnStageToSequenceStart();
+    if (m_stageHasReference) {
+        returnStageToSequenceStart();
+    }
 }
 
 void Spektrometr::refreshResults()
@@ -2450,7 +2616,7 @@ void Spektrometr::refreshResults()
         ? ui.listMeasurements->currentItem()->data(Qt::UserRole).toString()
         : QString();
     const int selectedRow = ui.listMeasurements->currentRow();
-    const QString rootPath = resolveMeasurementDataDir().absolutePath();
+    const QString rootPath = resolveMeasurementDataDir(m_options.results_folder_path, m_optionsPath).absolutePath();
     const QPointer<Spektrometr> self(this);
 
     std::thread([self, rootPath, selectedPath, selectedRow]() mutable {
@@ -2555,7 +2721,7 @@ void Spektrometr::exportAllMeasurements()
         return;
     }
 
-    const QDir root = resolveMeasurementDataDir();
+    const QDir root = resolveMeasurementDataDir(m_options.results_folder_path, m_optionsPath);
     int copied = 0;
     QDirIterator it(root.absolutePath(), QDir::Dirs | QDir::NoDotAndDotDot | QDir::Readable, QDirIterator::Subdirectories);
     while (it.hasNext()) {
@@ -2593,8 +2759,9 @@ void Spektrometr::deleteAllMeasurements()
         return;
     }
 
-    const QDir root = resolveMeasurementDataDir();
+    const QDir root = resolveMeasurementDataDir(m_options.results_folder_path, m_optionsPath);
     int removed = 0;
+    int pruned = 0;
     QDirIterator it(root.absolutePath(), QDir::Dirs | QDir::NoDotAndDotDot | QDir::Readable, QDirIterator::Subdirectories);
     while (it.hasNext()) {
         const QString folderPath = it.next();
@@ -2606,10 +2773,11 @@ void Spektrometr::deleteAllMeasurements()
 
         if (folder.removeRecursively()) {
             ++removed;
+            pruned += removeEmptyParentMeasurementFolders(folderPath, root.absolutePath());
         }
     }
 
-    appendLog(QStringLiteral("Deleted %1 measurement folder(s)").arg(removed));
+    appendLog(QStringLiteral("Deleted %1 measurement folder(s), pruned %2 empty parent folder(s)").arg(removed).arg(pruned));
     refreshResults();
 }
 
@@ -2636,7 +2804,16 @@ void Spektrometr::deleteSelectedMeasurement()
         return;
     }
 
-    QDir(folderPath).removeRecursively();
+    const QDir root = resolveMeasurementDataDir(m_options.results_folder_path, m_optionsPath);
+    int pruned = 0;
+    if (QDir(folderPath).removeRecursively()) {
+        pruned = removeEmptyParentMeasurementFolders(folderPath, root.absolutePath());
+    }
+    if (pruned > 0) {
+        appendLog(QStringLiteral("Deleted measurement and pruned %1 empty parent folder(s)").arg(pruned));
+    } else {
+        appendLog(QStringLiteral("Deleted measurement folder"));
+    }
     refreshResults();
 }
 
