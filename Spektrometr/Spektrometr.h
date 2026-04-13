@@ -43,8 +43,6 @@ private:
     static QImage renderCenteredTextImage(const QSize& size, const QString& text, const QColor& color, const QColor& bg = Qt::black);
     QWidget* m_loadingOverlay = nullptr;
     QLabel* m_loadingLabel = nullptr;
-    void ensureLoadingOverlay();
-    void setLoadingOverlayVisible(bool visible, const QString& text = QString());
     void loadOptionsToUi();
     void init();
     void loop();
@@ -114,8 +112,6 @@ private:
     // legacy save_spec removed; use per-exposure files + save_spec_from_files
     bool save_spec_from_files(const SequencePlanPoint& pt, const QVector<double>& exposuresMs, int completedExposureCount, QString* errOut);
     bool openSerialPort(QSerialPort*& port, QString& openName, const QString& wantName, const char* which);
-    void showLoading(const QString& text = QString());
-    void hideLoading();
     static cv::Mat qImageToCvMat(const QImage& image);
     // Index into movement map / plan
     static QVector<double> spectrumFromFrame(const QImage& src, int roiMin, int roiMax);
@@ -149,6 +145,8 @@ private:
     bool m_pixelinkNotConnectedLogged = false;
     bool m_portsNotConnectedLogged = false;
     qint64 m_portsNextConnectAllowedMs = 0;
+    std::atomic_bool m_motorsConnected{ true };
+    std::atomic_bool m_cameraConnected{ true };
     std::atomic_bool m_pixelinkRenderPending{ false };
     QVector<double> m_sequenceExposureTimesMs;
 #ifdef Q_OS_WIN

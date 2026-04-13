@@ -162,6 +162,7 @@ bool Spektrometr::openSerialPort(QSerialPort*& port, QString& openName, const QS
     if (!p->open(QIODevice::ReadWrite)) {
         const QString err = p->errorString();
         p->deleteLater();
+        m_motorsConnected.store(false);
         if (!m_portsNotConnectedLogged) {
             appendLog(QStringLiteral("Open Port %1 failed (%2): %3").arg(QString::fromLatin1(which), wantName, err));
             m_portsNotConnectedLogged = true;
@@ -174,6 +175,7 @@ bool Spektrometr::openSerialPort(QSerialPort*& port, QString& openName, const QS
 
     port = p;
     openName = wantName;
+    m_motorsConnected.store(true);
     m_portsNotConnectedLogged = false;
     m_portsNextConnectAllowedMs = 0;
     setSequenceButtonsEnabled(m_sequenceRunning.load());
@@ -186,17 +188,6 @@ bool Spektrometr::openSerialPort(QSerialPort*& port, QString& openName, const QS
     Q_UNUSED(which);
     return false;
 #endif
-}
-
-void Spektrometr::showLoading(const QString& text)
-{
-    ensureLoadingOverlay();
-    setLoadingOverlayVisible(true, text);
-}
-
-void Spektrometr::hideLoading()
-{
-    setLoadingOverlayVisible(false);
 }
 
 bool Spektrometr::save_spec_from_files(const SequencePlanPoint& pt, const QVector<double>& exposuresMs, int completedExposureCount, QString* errOut)
@@ -348,7 +339,7 @@ bool Spektrometr::check_hardware(QString* reasonOut)
 bool Spektrometr::portsOpen() const
 {
 #ifdef Q_OS_WIN
-    return (m_portX != nullptr && m_portX->isOpen() && m_portY != nullptr && m_portY->isOpen());
+    return m_motorsConnected.load() && m_portX != nullptr && m_portX->isOpen() && m_portY != nullptr && m_portY->isOpen();
 #else
     return false;
 #endif
@@ -357,7 +348,7 @@ bool Spektrometr::portsOpen() const
 bool Spektrometr::pixelinkOpen() const
 {
 #if HAVE_PIXELINK_SDK
-    return (m_pixelinkCamera != nullptr && m_pixelinkStreaming);
+    return m_cameraConnected.load() && m_pixelinkCamera != nullptr && m_pixelinkStreaming;
 #else
     return false;
 #endif
@@ -530,11 +521,13 @@ bool Spektrometr::move(int dxUm, int dyUm, QString* errOut)
         const QByteArray cmd = (dxP > 0 ? QByteArray("M:1+P") : QByteArray("M:1-P")) + QByteArray::number(qAbs(dxP)) + "\r\nG:\r\n";
         if (!m_portX || !m_portX->isOpen()) {
             err = QStringLiteral("X not open");
+            closeMotorPorts();
             if (errOut) *errOut = err;
             return false;
         }
         if (m_portX->write(cmd) != cmd.size() || !m_portX->waitForBytesWritten(1000)) {
             err = QStringLiteral("X write failed: %1").arg(m_portX->errorString());
+            closeMotorPorts();
             if (errOut) *errOut = err;
             return false;
         }
@@ -544,11 +537,13 @@ bool Spektrometr::move(int dxUm, int dyUm, QString* errOut)
         const QByteArray cmd = (dyP > 0 ? QByteArray("M:1+P") : QByteArray("M:1-P")) + QByteArray::number(qAbs(dyP)) + "\r\nG:\r\n";
         if (!m_portY || !m_portY->isOpen()) {
             err = QStringLiteral("Y not open");
+            closeMotorPorts();
             if (errOut) *errOut = err;
             return false;
         }
         if (m_portY->write(cmd) != cmd.size() || !m_portY->waitForBytesWritten(1000)) {
             err = QStringLiteral("Y write failed: %1").arg(m_portY->errorString());
+            closeMotorPorts();
             if (errOut) *errOut = err;
             return false;
         }
@@ -561,20 +556,6 @@ bool Spektrometr::move(int dxUm, int dyUm, QString* errOut)
     if (errOut) *errOut = QStringLiteral("Motor control not available on this OS");
     return false;
 #endif
-}
-
-void Spektrometr::setLoadingOverlayVisible(bool visible, const QString& text)
-{
-    ensureLoadingOverlay();
-    if (!m_loadingOverlay) return;
-
-    if (!text.isEmpty() && m_loadingLabel) {
-        m_loadingLabel->setText(text);
-    }
-
-    m_loadingOverlay->setGeometry(centralWidget()->rect());
-    m_loadingOverlay->raise();
-    m_loadingOverlay->setVisible(visible);
 }
 
 static QDir resolveMeasurementDataDir(const QString& configuredPath, const QString& optionsPath)
@@ -592,33 +573,6 @@ static QDir resolveMeasurementDataDir(const QString& configuredPath, const QStri
     const QFileInfo optionsInfo(optionsPath);
     const QDir baseDir = optionsPath.isEmpty() ? QDir::current() : optionsInfo.absoluteDir();
     return QDir(baseDir.absoluteFilePath(path));
-}
-
-static int removeEmptyParentMeasurementFolders(const QString& startPath, const QString& stopAtPath)
-{
-    int removed = 0;
-    QString currentPath = QDir(startPath).absolutePath();
-    const QString stopPath = QDir(stopAtPath).absolutePath();
-
-    while (!currentPath.isEmpty() && currentPath != stopPath) {
-        QDir currentDir(currentPath);
-        const auto entries = currentDir.entryInfoList(QDir::NoDotAndDotDot | QDir::AllEntries, QDir::NoSort);
-        if (!entries.isEmpty()) {
-            break;
-        }
-
-        const QFileInfo currentInfo(currentPath);
-        QDir parentDir = currentInfo.dir();
-        const QString leafName = currentInfo.fileName();
-        if (leafName.isEmpty() || !parentDir.rmdir(leafName)) {
-            break;
-        }
-
-        ++removed;
-        currentPath = parentDir.absolutePath();
-    }
-
-    return removed;
 }
 
 struct MeasurementListEntry {
@@ -1379,6 +1333,21 @@ void Spektrometr::tickPixelink()
         m_pixelinkTimer = new QTimer(this);
         m_pixelinkTimer->setInterval(200);
         connect(m_pixelinkTimer, &QTimer::timeout, this, [this]() {
+            if (m_pixelinkCamera != nullptr && m_pixelinkStreaming) {
+#if HAVE_PIXELINK_SDK
+                U32 cameraCount = 0;
+                const PXL_RETURN_CODE countRc = PxLGetNumberCameras(nullptr, &cameraCount);
+                if (!API_SUCCESS(countRc) || cameraCount == 0) {
+                    m_cameraConnected.store(false);
+                } else {
+                    m_cameraConnected.store(true);
+                }
+#endif
+            }
+
+            updateConnectionStatusUi();
+            setSequenceButtonsEnabled(m_sequenceRunning.load());
+
             if (m_pixelinkWorkerRunning.exchange(true)) {
                 m_pixelinkRenderPending = true;
                 return;
@@ -1394,12 +1363,12 @@ void Spektrometr::tickPixelink()
                     return;
                 }
 
-                    QImage frame;
-                    quint64 frameNumber = 0;
+                QImage frame;
+                quint64 frameNumber = 0;
 #if HAVE_PIXELINK_SDK
                 if (self->m_pixelinkCamera != nullptr && self->m_pixelinkStreaming) {
-                    QString captureErr;
                     QMutexLocker lock(&self->m_pixelinkCameraMutex);
+                    QString captureErr;
                     (void)capturePixelinkFrame(self->m_pixelinkCamera, &frame, &frameNumber, &captureErr);
                 }
 #endif
@@ -1509,6 +1478,29 @@ void Spektrometr::tickPorts()
         connect(m_portTimer, &QTimer::timeout, this, [this]() {
             refreshPortLists();
 #ifdef Q_OS_WIN
+            auto portPresent = [](const QString& portName) {
+                const QString wanted = normalizedSerialPortName(portName);
+                if (wanted.isEmpty()) {
+                    return false;
+                }
+                const auto ports = QSerialPortInfo::availablePorts();
+                for (const auto& info : ports) {
+                    if (normalizedSerialPortName(info.portName()) == wanted) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            bool motorsHealthy = true;
+            if (m_portX && m_portX->isOpen()) {
+                motorsHealthy = motorsHealthy && portPresent(m_openPortX.isEmpty() ? (ui.comboPortX ? ui.comboPortX->currentText() : m_options.port_x) : m_openPortX);
+            }
+            if (m_portY && m_portY->isOpen()) {
+                motorsHealthy = motorsHealthy && portPresent(m_openPortY.isEmpty() ? (ui.comboPortY ? ui.comboPortY->currentText() : m_options.port_y) : m_openPortY);
+            }
+            m_motorsConnected.store(motorsHealthy);
+
             const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
             if (m_portX == nullptr || !m_portX->isOpen() || m_portY == nullptr || !m_portY->isOpen()) {
                 if (nowMs >= m_portsNextConnectAllowedMs) {
@@ -1518,6 +1510,8 @@ void Spektrometr::tickPorts()
                     openSerialPort(m_portY, m_openPortY, wantY, "Y");
                 }
             }
+
+            updateConnectionStatusUi();
 #endif
             setSequenceButtonsEnabled(m_sequenceRunning.load());
         });
@@ -1941,34 +1935,6 @@ void Spektrometr::runSequenceLoop(SequenceRunSnapshot snapshot)
     }, Qt::BlockingQueuedConnection);
 }
 
-void Spektrometr::ensureLoadingOverlay()
-{
-    if (m_loadingOverlay) {
-        return;
-    }
-
-    auto* cw = centralWidget();
-    if (!cw) {
-        return;
-    }
-
-    m_loadingOverlay = new QWidget(cw);
-    m_loadingOverlay->setAttribute(Qt::WA_StyledBackground, true);
-    m_loadingOverlay->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-    m_loadingOverlay->setStyleSheet(QStringLiteral("QWidget{background:rgba(0,0,0,150);} QLabel{color:white;font-size:16px;}"));
-
-    auto* layout = new QVBoxLayout(m_loadingOverlay);
-    layout->setContentsMargins(12, 12, 12, 12);
-    layout->addStretch();
-
-    m_loadingLabel = new QLabel(tr("Loading..."), m_loadingOverlay);
-    m_loadingLabel->setAlignment(Qt::AlignCenter);
-    layout->addWidget(m_loadingLabel);
-    layout->addStretch();
-
-    m_loadingOverlay->hide();
-}
-
 void Spektrometr::loadOptionsToUi()
 {
     if (ui.spinScanWidth) {
@@ -2331,6 +2297,7 @@ void Spektrometr::startPixelink()
     const PXL_RETURN_CODE countRc = PxLGetNumberCameras(nullptr, &cameraCount);
     if (!API_SUCCESS(countRc) || cameraCount == 0) {
         m_pixelinkConnectInProgress = false;
+        m_cameraConnected.store(false);
         m_pixelinkNextConnectAllowedMs = nowMs + 3000;
         if (!m_pixelinkNotConnectedLogged) {
             appendLog(QStringLiteral("PixeLink camera not found"));
@@ -2346,6 +2313,7 @@ void Spektrometr::startPixelink()
     const PXL_RETURN_CODE listRc = PxLGetNumberCameras(serials.data(), &serialCount);
     if (!API_SUCCESS(listRc) || serialCount == 0) {
         m_pixelinkConnectInProgress = false;
+        m_cameraConnected.store(false);
         m_pixelinkNextConnectAllowedMs = nowMs + 3000;
         if (!m_pixelinkNotConnectedLogged) {
             appendLog(QStringLiteral("PixeLink camera enumeration failed (0x%1)").arg(QString::number(listRc, 16)));
@@ -2362,6 +2330,7 @@ void Spektrometr::startPixelink()
     const PXL_RETURN_CODE initRc = PxLInitialize(serialNumber, &camera);
     if (!API_SUCCESS(initRc) || camera == nullptr) {
         m_pixelinkConnectInProgress = false;
+        m_cameraConnected.store(false);
         m_pixelinkNextConnectAllowedMs = nowMs + 3000;
         if (!m_pixelinkNotConnectedLogged) {
             appendLog(QStringLiteral("PxLInitialize failed for camera %1 (0x%2)").arg(serialNumber).arg(QString::number(initRc, 16)));
@@ -2375,6 +2344,7 @@ void Spektrometr::startPixelink()
     if (!API_SUCCESS(streamRc)) {
         PxLUninitialize(camera);
         m_pixelinkConnectInProgress = false;
+        m_cameraConnected.store(false);
         m_pixelinkNextConnectAllowedMs = nowMs + 3000;
         if (!m_pixelinkNotConnectedLogged) {
             appendLog(QStringLiteral("PxLSetStreamState(START_STREAM) failed (0x%1)").arg(QString::number(streamRc, 16)));
@@ -2386,6 +2356,7 @@ void Spektrometr::startPixelink()
 
     m_pixelinkCamera = camera;
     m_pixelinkStreaming = true;
+    m_cameraConnected.store(true);
     m_pixelinkConnectInProgress = false;
     m_pixelinkNextConnectAllowedMs = 0;
     m_pixelinkNotConnectedLogged = false;
