@@ -68,10 +68,6 @@ private:
     std::atomic<quint64> m_pixelinkLatestFrameNumber{ 0 };
     std::atomic_bool m_spectrumWorkerRunning{ false };
     std::atomic_bool m_spectrumRenderPending{ false };
-    QMutex m_spectrumPixmapMutex;
-    QPixmap m_spectrumLatestPixmap;
-    QMutex m_spectrumImageMutex;
-    QImage m_spectrumLatestImage;
     std::atomic_bool m_resultsScanRunning{ false };
     std::atomic_bool m_resultsRefreshPending{ false };
     QLabel* m_connectionStatusLabel = nullptr;
@@ -111,7 +107,6 @@ private:
     void make_movement_map();
     void preview_map(SequenceRunSnapshot snapshot);
     void apply_roi(int roiMin, int roiMax);
-    void showSpectrumCalibrationDialog();
     void showBrightnessCalibrationDialog();
     void showFunctionCalibrationDialog();
     void runCalibrationMode(int modeIndex);
@@ -121,14 +116,12 @@ private:
     bool openSerialPort(QSerialPort*& port, QString& openName, const QString& wantName, const char* which);
     void showLoading(const QString& text = QString());
     void hideLoading();
-    bool hasSpectrumCalibration() const;
-    double wavelengthForPixel(double pixel) const;
-    void setSpectrumCalibration(double pixel1, double nm1, double pixel2, double nm2);
     static cv::Mat qImageToCvMat(const QImage& image);
     // Index into movement map / plan
     static QVector<double> spectrumFromFrame(const QImage& src, int roiMin, int roiMax);
     std::atomic_bool m_sequenceRunning{ false };
     std::atomic_bool m_sequencePaused{ false };
+    std::atomic_bool m_sequenceFinishedSuccessfully{ false };
     QThread* m_sequenceWorkerThread = nullptr;
     QTimer* m_sequenceReconnectTimer = nullptr;
     bool m_pauseDialogOpen = false;
@@ -145,12 +138,6 @@ private:
     QObject* m_fileWorker = nullptr;
     Options m_options;
     QString m_optionsPath;
-    double spectrum_range_min = 0.0;
-    double spectrum_range_max = 2048.0;
-    double spectrum_cal_pixel1 = 0.0;
-    double spectrum_cal_nm1 = 0.0;
-    double spectrum_cal_pixel2 = 2048.0;
-    double spectrum_cal_nm2 = 2048.0;
     void saveOptions();
     void refreshPortLists();
     void stopPixelink();

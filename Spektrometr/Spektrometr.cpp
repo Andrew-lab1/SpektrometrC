@@ -16,8 +16,6 @@
 #include <QTimer>
 #include <QByteArray>
 #include <QCoreApplication>
-#include <QDebug>
-#include <QDesktopServices>
 #include <QComboBox>
 #include <QEvent>
 #include <QFrame>
@@ -37,7 +35,6 @@
 #include <QMutexLocker>
 #include <QDialog>
 #include <QDialogButtonBox>
-#include <QFormLayout>
 #include <QPushButton>
 #include <QPointer>
 #include <QElapsedTimer>
@@ -315,7 +312,9 @@ bool Spektrometr::save_spec_from_files(const SequencePlanPoint& pt, const QVecto
     }
     QTextStream out(&of);
     out << "lambda_idx";
-    for (int e = 0; e < nExp; ++e) out << ",t_" << (e + 1) << "_ms";
+    for (int e = 0; e < nExp; ++e) {
+        out << "," << QString::number(exposuresMs[e], 'f', 1) << " ms";
+    }
     out << "\n";
     for (int i = 0; i < nLam; ++i) {
         out << i;
@@ -1161,8 +1160,6 @@ void Spektrometr::tickSpectrum(bool force)
     const QPointer<Spektrometr> self(this);
 
     std::thread([self, frame = std::move(frame), targetSize, roiMin, roiMax, roiStart, roiEnd, calPixel1, calNm1, calPixel2, calNm2]() mutable {
-        QElapsedTimer workerTimer;
-        workerTimer.start();
         auto wavelengthForPixel = [calPixel1, calNm1, calPixel2, calNm2](double pixel) -> double {
             const double dx = calPixel2 - calPixel1;
             if (qFuzzyIsNull(dx)) {
@@ -1331,7 +1328,6 @@ void Spektrometr::tickSpectrum(bool force)
         const QVector<double> spectrum = frame.isNull() ? QVector<double>() : spectrumFromFrame(frame, roiMin, roiMax);
         const QString centerText = (frame.isNull() || spectrum.isEmpty()) ? QStringLiteral("Brak danych") : QString();
         const QImage chart = buildSpectrumChart(spectrum, targetSize, centerText);
-        const qint64 workerMs = workerTimer.elapsed();
 
         if (!self || !self.data()) {
             return;
@@ -1343,8 +1339,6 @@ void Spektrometr::tickSpectrum(bool force)
             }
 
             const QPixmap pix = QPixmap::fromImage(chart);
-            self->m_spectrumLatestImage = chart;
-            self->m_spectrumLatestPixmap = pix;
             if (self->ui.labelSpectrumPlaceholder) {
                 self->ui.labelSpectrumPlaceholder->setText(QString());
                 self->ui.labelSpectrumPlaceholder->setPixmap(pix);
@@ -2055,37 +2049,6 @@ void Spektrometr::loadOptionsToUi()
     }
 }
 
-bool Spektrometr::hasSpectrumCalibration() const
-{
-    return !qFuzzyCompare(m_options.spectrum_cal_pixel1 + 1.0, m_options.spectrum_cal_pixel2 + 1.0);
-}
-
-double Spektrometr::wavelengthForPixel(double pixel) const
-{
-    const double dx = m_options.spectrum_cal_pixel2 - m_options.spectrum_cal_pixel1;
-    if (qFuzzyIsNull(dx)) {
-        return m_options.spectrum_cal_nm1;
-    }
-    const double slope = (m_options.spectrum_cal_nm2 - m_options.spectrum_cal_nm1) / dx;
-    const double intercept = m_options.spectrum_cal_nm1 - slope * m_options.spectrum_cal_pixel1;
-    return (slope * pixel) + intercept;
-}
-
-void Spektrometr::setSpectrumCalibration(double pixel1, double nm1, double pixel2, double nm2)
-{
-    m_options.spectrum_cal_pixel1 = pixel1;
-    m_options.spectrum_cal_nm1 = nm1;
-    m_options.spectrum_cal_pixel2 = pixel2;
-    m_options.spectrum_cal_nm2 = nm2;
-    ::saveOptions(m_optionsPath, m_options);
-    tickSpectrum();
-}
-
-void Spektrometr::showSpectrumCalibrationDialog()
-{
-    runCalibrationMode(0);
-}
-
 void Spektrometr::showBrightnessCalibrationDialog()
 {
     QDialog dlg(this);
@@ -2503,6 +2466,7 @@ void Spektrometr::startSequence()
 
     m_sequenceRunning.store(true);
     m_sequencePaused.store(false);
+    m_sequenceFinishedSuccessfully.store(false);
     SequenceRunSnapshot snapshot;
     snapshot.roiMin = int(m_options.spectrum_range_min);
     snapshot.roiMax = int(m_options.spectrum_range_max);
@@ -2528,6 +2492,7 @@ void Spektrometr::stopSequence()
     }
     m_sequenceRunning.store(false);
     m_sequencePaused.store(false);
+    m_sequenceFinishedSuccessfully.store(false);
 
     if (workerRunning) {
         m_sequenceWorkerThread->requestInterruption();
@@ -2566,6 +2531,9 @@ void Spektrometr::launchSequenceWorker(SequenceRunSnapshot snapshot)
         if (!m_sequenceRunning.load() && m_stageHasReference) {
             returnStageToSequenceStart();
         }
+        if (!m_sequenceFinishedSuccessfully.load()) {
+            refreshResults();
+        }
         setSequenceButtonsEnabled(m_sequenceRunning.load());
     });
     workerThread->start();
@@ -2587,6 +2555,7 @@ void Spektrometr::finalizeSequenceSuccess()
 {
     m_sequenceRunning.store(false);
     m_sequencePaused.store(false);
+    m_sequenceFinishedSuccessfully.store(true);
     setSequenceButtonsEnabled(false);
     refreshResults();
     if (m_stageHasReference) {
@@ -2755,13 +2724,13 @@ void Spektrometr::exportAllMeasurements()
 
 void Spektrometr::deleteAllMeasurements()
 {
-    if (QMessageBox::question(this, tr("Delete all"), tr("Delete all measurement folders?")) != QMessageBox::Yes) {
+    if (QMessageBox::question(this, tr("Delete all"), tr("Delete all measurement folders and their files?")) != QMessageBox::Yes) {
         return;
     }
 
     const QDir root = resolveMeasurementDataDir(m_options.results_folder_path, m_optionsPath);
     int removed = 0;
-    int pruned = 0;
+    QStringList foldersToRemove;
     QDirIterator it(root.absolutePath(), QDir::Dirs | QDir::NoDotAndDotDot | QDir::Readable, QDirIterator::Subdirectories);
     while (it.hasNext()) {
         const QString folderPath = it.next();
@@ -2770,14 +2739,20 @@ void Spektrometr::deleteAllMeasurements()
         if (pointFiles.isEmpty()) {
             continue;
         }
+        foldersToRemove.push_back(folderPath);
+    }
 
-        if (folder.removeRecursively()) {
+    std::sort(foldersToRemove.begin(), foldersToRemove.end(), [](const QString& a, const QString& b) {
+        return a.size() > b.size();
+    });
+
+    for (const QString& folderPath : foldersToRemove) {
+        if (QDir(folderPath).removeRecursively()) {
             ++removed;
-            pruned += removeEmptyParentMeasurementFolders(folderPath, root.absolutePath());
         }
     }
 
-    appendLog(QStringLiteral("Deleted %1 measurement folder(s), pruned %2 empty parent folder(s)").arg(removed).arg(pruned));
+    appendLog(QStringLiteral("Deleted %1 measurement folder(s) with all files").arg(removed));
     refreshResults();
 }
 
@@ -2800,19 +2775,14 @@ void Spektrometr::deleteSelectedMeasurement()
         return;
     }
 
-    if (QMessageBox::question(this, tr("Delete measurement"), tr("Delete selected measurement folder?")) != QMessageBox::Yes) {
+    if (QMessageBox::question(this, tr("Delete measurement"), tr("Delete selected measurement folder and all its files?")) != QMessageBox::Yes) {
         return;
     }
 
-    const QDir root = resolveMeasurementDataDir(m_options.results_folder_path, m_optionsPath);
-    int pruned = 0;
     if (QDir(folderPath).removeRecursively()) {
-        pruned = removeEmptyParentMeasurementFolders(folderPath, root.absolutePath());
-    }
-    if (pruned > 0) {
-        appendLog(QStringLiteral("Deleted measurement and pruned %1 empty parent folder(s)").arg(pruned));
+        appendLog(QStringLiteral("Deleted measurement folder with all files"));
     } else {
-        appendLog(QStringLiteral("Deleted measurement folder"));
+        appendLog(QStringLiteral("Failed to delete measurement folder"));
     }
     refreshResults();
 }

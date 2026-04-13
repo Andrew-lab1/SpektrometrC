@@ -1987,27 +1987,6 @@ void HeatmapWindow::updateSpectrum()
     m_spectrumLabel->setPixmap(pm);
 }
 
-static void applyScaledPixmap(QLabel* lbl, const QImage& src)
-{
-    if (!lbl) return;
-    if (src.isNull()) {
-        lbl->setPixmap(QPixmap());
-        return;
-    }
-    const QRect target = lbl->contentsRect().isValid() ? lbl->contentsRect() : QRect(QPoint(0, 0), lbl->size());
-    if (!target.isValid() || target.size().isEmpty()) return;
-
-    const qreal dpr = lbl->devicePixelRatioF();
-    const QSize targetPx(qMax(1, int(std::round(target.width() * dpr))), qMax(1, int(std::round(target.height() * dpr))));
-
-    QPixmap pm = QPixmap::fromImage(src);
-    // Use Fast (nearest-ish) scaling to keep grid/heatmap crisp during resize.
-    // High-quality scale comes from re-rendering at target size.
-    QPixmap scaled = pm.scaled(targetPx, Qt::KeepAspectRatio, Qt::FastTransformation);
-    scaled.setDevicePixelRatio(dpr);
-    lbl->setPixmap(scaled);
-}
-
 bool HeatmapWindow::eventFilter(QObject* watched, QEvent* event)
 {
     if (event && (event->type() == QEvent::Show || event->type() == QEvent::Resize)) {
