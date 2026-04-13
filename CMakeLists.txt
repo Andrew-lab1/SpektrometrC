@@ -34,6 +34,23 @@ add_executable(Spektrometr
 
 target_link_libraries(Spektrometr PRIVATE ${QT_LIBS})
 
+if (WIN32)
+    find_program(WINDEPLOYQT_EXECUTABLE
+        NAMES windeployqt
+        HINTS
+            "${Qt6_DIR}/../../../bin"
+            "${Qt5_DIR}/../../../bin"
+    )
+
+    if (WINDEPLOYQT_EXECUTABLE)
+        add_custom_command(TARGET Spektrometr POST_BUILD
+            COMMAND "${WINDEPLOYQT_EXECUTABLE}" --no-translations --compiler-runtime "$<TARGET_FILE:Spektrometr>"
+            WORKING_DIRECTORY "$<TARGET_FILE_DIR:Spektrometr>"
+            COMMENT "Deploying Qt runtime"
+        )
+    endif()
+endif()
+
 # Optional: PixeLINK SDK (headers+libs) if provided.
 # Usage example:
 #   cmake -S . -B build \
@@ -45,6 +62,8 @@ set(PIXELINK_SDK_ROOT "" CACHE PATH "Path to PixeLINK SDK root (optional)")
 if (PIXELINK_SDK_ROOT)
     target_include_directories(Spektrometr PRIVATE "${PIXELINK_SDK_ROOT}/include")
 
+    set(PIXELINK_RUNTIME_DIR "${PIXELINK_SDK_ROOT}/bin" CACHE PATH "Path to PixeLINK runtime DLLs (optional)")
+
     if (WIN32)
         # The exact library name can vary by SDK version.
         # Prefer an explicit path via PIXELINK_SDK_LIB if this doesn't match.
@@ -53,6 +72,16 @@ if (PIXELINK_SDK_ROOT)
             target_link_libraries(Spektrometr PRIVATE "${PIXELINK_SDK_LIB}")
         else()
             message(STATUS "PIXELINK_SDK_ROOT set, but PIXELINK_SDK_LIB not provided; build will compile only if headers suffice.")
+        endif()
+
+        if (PIXELINK_RUNTIME_DIR AND EXISTS "${PIXELINK_RUNTIME_DIR}")
+            file(GLOB PIXELINK_RUNTIME_DLLS CONFIGURE_DEPENDS "${PIXELINK_RUNTIME_DIR}/*.dll")
+            if (PIXELINK_RUNTIME_DLLS)
+                add_custom_command(TARGET Spektrometr POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PIXELINK_RUNTIME_DLLS} "$<TARGET_FILE_DIR:Spektrometr>"
+                    COMMENT "Copying PixeLINK runtime DLLs"
+                )
+            endif()
         endif()
     else()
         # Linux: link with -lPxLApi if present in SDK lib dir
